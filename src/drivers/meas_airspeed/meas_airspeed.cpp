@@ -116,7 +116,7 @@ protected:
 	virtual int	collect();
 
 	// correct for 5V rail voltage
-	void voltage_correction(float &diff_pres_pa);
+	void voltage_correction(float &diff_pres_pa, float &temperature);
 
 	int _t_system_power;
 	struct system_power_s system_power;
@@ -196,7 +196,7 @@ MEASAirspeed::collect()
 	dp_raw = 0x3FFF & dp_raw; //mask the used bits
 	dT_raw = (val[2] << 8) + val[3];
 	dT_raw = (0xFFE0 & dT_raw) >> 5;
-	float temperature = ((200 * dT_raw) / 2047) - 50;
+	float temperature = ((200.0f * dT_raw) / 2047) - 50;
 
 	// XXX we may want to smooth out the readings to remove noise.
 
@@ -210,7 +210,7 @@ MEASAirspeed::collect()
             diff_press_pa = 0.0f;
 
         // correct for 5V rail voltage if possible
-        voltage_correction(diff_press_pa);
+        voltage_correction(diff_press_pa, temperature);
 
 	struct differential_pressure_s report;
 
@@ -296,7 +296,7 @@ MEASAirspeed::cycle()
    offset versus voltage for 3 sensors
  */
 void
-MEASAirspeed::voltage_correction(float &diff_press_pa)
+MEASAirspeed::voltage_correction(float &diff_press_pa, float &temperature)
 {
 #ifdef CONFIG_ARCH_BOARD_PX4FMU_V2
 	if (_t_system_power == -1) {
@@ -328,6 +328,19 @@ MEASAirspeed::voltage_correction(float &diff_press_pa)
 		voltage_diff = -0.5f;
 	}
 	diff_press_pa -= voltage_diff * slope;
+
+	/*
+	  the temperature masurement varies as well
+	 */
+	const float temp_slope = 0.887f;
+	voltage_diff = system_power.voltage5V_v - 5.0f;
+	if (voltage_diff > 0.5f) {
+		voltage_diff = 0.5f;
+	}
+	if (voltage_diff < -1.0f) {
+		voltage_diff = -1.0f;
+	}
+	temperature -= voltage_diff * temp_slope;	
 #endif // CONFIG_ARCH_BOARD_PX4FMU_V2
 }
 
