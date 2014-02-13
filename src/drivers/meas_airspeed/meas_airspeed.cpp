@@ -201,17 +201,45 @@ MEASAirspeed::collect()
 	// XXX we may want to smooth out the readings to remove noise.
 
 	// Calculate differential pressure. As its centered around 8000
-	// and can go positive or negative, enforce absolute value
-//	uint16_t diff_press_pa = abs(dp_raw - (16384 / 2.0f));
+	// and can go positive or negative
 	const float P_min = -1.0f;
 	const float P_max = 1.0f;
-	float diff_press_pa = fabsf( ( ((float)dp_raw - 0.1f*16383.0f) * (P_max-P_min)/(0.8f*16383.0f) + P_min) * 6894.8f) - _diff_pres_offset;
-        if (diff_press_pa < 0.0f)
-            diff_press_pa = 0.0f;
+	const float PSI_to_Pa = 6894.757f;
+	/*
+	  this equation is an inversion of the equation in the
+	  pressure transfer function figure on page 4 of the datasheet
+
+	  We negate the result so that positive differential pressures
+	  are generated when the bottom port is used as the static
+	  port on the pitot and top port is used as the dynamic port
+	 */
+	float diff_press_PSI = -((dp_raw - 0.1f*16383) * (P_max-P_min)/(0.8f*16383) + P_min);
+	float diff_press_pa_raw = diff_press_PSI * PSI_to_Pa;
 
         // correct for 5V rail voltage if possible
-        voltage_correction(diff_press_pa, temperature);
+        voltage_correction(diff_press_pa_raw, temperature);
 
+	float diff_press_pa = fabsf(diff_press_pa_raw - _diff_pres_offset);
+	
+	/*
+	  note that we return both the absolute value with offset
+	  applied and a raw value without the offset applied. This
+	  makes it possible for higher level code to detect if the
+	  user has the tubes connected backwards, and also makes it
+	  possible to correctly use offsets calculated by a higher
+	  level airspeed driver.
+
+	  With the above calculation the MS4525 sensor will produce a
+	  positive number when the top port is used as a dynamic port
+	  and bottom port is used as the static port
+
+	  Also note that the _diff_pres_offset is applied before the
+	  fabsf() not afterwards. It needs to be done this way to
+	  prevent a bias at low speeds, but this also means that when
+	  setting a offset you must set it based on the raw value, not
+	  the offset value
+	 */
+	
 	struct differential_pressure_s report;
 
 	// Track maximum differential pressure measured (so we can work out top speed).
@@ -223,6 +251,7 @@ MEASAirspeed::collect()
         report.error_count = perf_event_count(_comms_errors);
 	report.temperature = temperature;
 	report.differential_pressure_pa = diff_press_pa;
+	report.differential_pressure_raw_pa = diff_press_pa_raw;
 	report.voltage = 0;
 	report.max_differential_pressure_pa = _max_differential_pressure_pa;
 
@@ -316,7 +345,7 @@ MEASAirspeed::voltage_correction(float &diff_press_pa, float &temperature)
 		return;
 	}
 
-	const float slope = 70.0f;
+	const float slope = 65.0f;
 	/*
 	  apply a piecewise linear correction, flattening at 0.5V from 5V
 	 */
@@ -458,7 +487,7 @@ test()
 		err(1, "immediate read failed");
 
 	warnx("single read");
-	warnx("diff pressure: %d pa", report.differential_pressure_pa);
+	warnx("diff pressure: %d pa", (int)report.differential_pressure_pa);
 
 	/* start the sensor polling at 2Hz */
 	if (OK != ioctl(fd, SENSORIOCSPOLLRATE, 2))
@@ -483,7 +512,7 @@ test()
 			err(1, "periodic read failed");
 
 		warnx("periodic read %u", i);
-		warnx("diff pressure: %d pa", report.differential_pressure_pa);
+		warnx("diff pressure: %d pa", (int)report.differential_pressure_pa);
 		warnx("temperature: %d C (0x%02x)", (int)report.temperature, (unsigned) report.temperature);
 	}
 
