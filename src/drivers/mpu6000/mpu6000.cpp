@@ -727,7 +727,7 @@ int MPU6000::reset()
 	_set_dlpf_filter(MPU6000_DEFAULT_ONCHIP_FILTER_FREQ);
 	usleep(1000);
 	// Gyro scale 2000 deg/s ()
-	write_checked_reg(MPUREG_GYRO_CONFIG, BITS_FS_2000DPS);
+	write_checked_reg(MPUREG_GYRO_CONFIG, BITS_FS_250DPS);
 	usleep(1000);
 
 	// correct gyro scale factors
@@ -736,7 +736,7 @@ int MPU6000::reset()
 	// scaling factor:
 	// 1/(2^15)*(2000/180)*PI
 	_gyro_range_scale = (0.0174532 / 16.4);//1.0f / (32768.0f * (2000.0f / 180.0f) * M_PI_F);
-	_gyro_range_rad_s = (2000.0f / 180.0f) * M_PI_F;
+	_gyro_range_rad_s = (250.0f / 180.0f) * M_PI_F;
 
 	set_accel_range(8);
 
